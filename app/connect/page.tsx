@@ -4,11 +4,13 @@ import { useState, useEffect } from "react";
 import { useGoogleLogin } from "@react-oauth/google";
 import { LogOut, Cloud, FileSpreadsheet } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useToast } from "../components/ToastProvider";
 
 export default function ConnectPage() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [files, setFiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const { showToast } = useToast();
   const router = useRouter();
 
   const login = useGoogleLogin({
@@ -19,7 +21,7 @@ export default function ConnectPage() {
       setAccessToken(token);
       sessionStorage.setItem("accessToken", token);
     },
-    onError: () => alert("Login Failed"),
+    onError: () => showToast("Login Failed" , "error"),
   });
 
   const logout = () => {
@@ -46,7 +48,7 @@ export default function ConnectPage() {
       const data = await res.json();
       setFiles(data.files || []);
     } catch (err) {
-      console.error(err);
+      showToast("Error fetching files" , "error");
     }
     setLoading(false);
   }
@@ -104,7 +106,7 @@ export default function ConnectPage() {
       router.push("/tables");
 
     } catch (err) {
-      console.error(err);
+      showToast("Error opening sheet" , "error");
     } finally {
       setLoading(false);
     }

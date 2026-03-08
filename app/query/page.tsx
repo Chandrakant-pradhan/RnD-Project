@@ -3,12 +3,14 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getDB } from "../lib/pglite";
+import { useToast } from "../components/ToastProvider";
 
 export default function QueryPage() {
   const [db, setDb] = useState<any>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const { showToast } = useToast();
 
   useEffect(() => {
     async function init() {
@@ -28,7 +30,7 @@ export default function QueryPage() {
       const resultRows = result.rows || [];
 
       if (resultRows.length === 0) {
-        setError("Query returned no rows");
+        showToast("Query returned no rows" , "error");
         return;
       }
 
@@ -56,7 +58,7 @@ export default function QueryPage() {
       const updated = [...filtered, queryTab];
 
       sessionStorage.setItem("sheets", JSON.stringify(updated));
-
+      
       router.push("/tables");
 
     } catch (err: any) {

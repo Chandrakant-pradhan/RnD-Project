@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { RefreshCw, X } from "lucide-react";
 import SpreadsheetViewer from "../components/SpreadsheetViewer";
+import { useToast } from "../components/ToastProvider";
 
 interface Tab {
   name: string;
@@ -13,6 +14,7 @@ export default function TablesPage() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<number>(0);
   const [syncing, setSyncing] = useState<boolean>(false);
+  const { showToast } = useToast();
 
   useEffect(() => {
     const stored = sessionStorage.getItem("sheets");
@@ -75,7 +77,7 @@ export default function TablesPage() {
       sessionStorage.setItem("sheets", JSON.stringify(results));
       setTabs(results);
     } catch (err) {
-      console.error("Sync failed", err);
+      showToast("Error syncing data", "error");
     } finally {
       setSyncing(false);
     }

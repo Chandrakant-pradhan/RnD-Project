@@ -1,14 +1,14 @@
 "use client";
 
 import { useState , useEffect} from "react";
-import { Upload, CheckCircle, XCircle } from "lucide-react";
+import { Upload } from "lucide-react";
 import { getDB } from "../lib/pglite";
+import { useToast } from "../components/ToastProvider";
 
 export default function FileUploader() {
   const [db, setDb] = useState<any>(null);
   const [fileName, setFileName] = useState<string | null>(null);
-  const [status, setStatus] = useState<"success" | "error" | null>(null);
-  const [message, setMessage] = useState("");
+  const { showToast } = useToast();
 
   useEffect(() => {
       async function init() {
@@ -25,20 +25,16 @@ export default function FileUploader() {
     if (!file) return;
 
     setFileName(file.name);
-    setStatus(null);
-    setMessage("");
 
     try {
       const sql = await file.text();
 
       // Execute SQL
       await db.exec(sql);
+      showToast("File loaded successfully" , "success");
 
-      setStatus("success");
-      setMessage("SQL executed successfully.");
     } catch (err: any) {
-      setStatus("error");
-      setMessage(err?.message || "Failed to execute SQL.");
+      showToast(err?.message || "Failed to load file in DB" , "error");
     }
   };
 
@@ -82,21 +78,6 @@ export default function FileUploader() {
         </p>
       )}
 
-      {/* Status */}
-      {status && (
-        <div
-          className={`mt-4 flex items-center gap-2 text-sm font-medium ${
-            status === "success" ? "text-green-600" : "text-red-600"
-          }`}
-        >
-          {status === "success" ? (
-            <CheckCircle className="w-4 h-4" />
-          ) : (
-            <XCircle className="w-4 h-4" />
-          )}
-          {message}
-        </div>
-      )}
     </div>
   );
 }
