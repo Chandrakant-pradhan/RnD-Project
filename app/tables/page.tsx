@@ -5,6 +5,8 @@ import { RefreshCw, X, Wand2 } from "lucide-react";
 import SpreadsheetViewer from "../components/SpreadsheetViewer";
 import { useToast } from "../components/ToastProvider";
 import { inferTable } from "../lib/inference";
+import { getDB } from "../lib/pglite";
+import { removeEmptyTopRows } from "../lib/removeEmptyRows";
 
 interface Tab {
   name: string;
@@ -19,6 +21,8 @@ export default function TablesPage() {
   const [showSchema, setShowSchema] = useState(false);
   const [schema, setSchema] = useState("");
   const [schemaKey, setSchemaKey] = useState("");
+  const [cleanedRows, setCleanedRows] = useState<string[][]>([]);
+  const [loadingSchema, setLoadingSchema] = useState(false);
 
   useEffect(() => {
     const stored = sessionStorage.getItem("sheets");
@@ -58,8 +62,9 @@ export default function TablesPage() {
 
   async function openSchema(tab: Tab) {
     const tableName = getTableName(tab);
-    let schemaText = await inferTable(tab.rows, tableName);
-    setSchema(schemaText);
+    const { ddl, rows } = await inferTable(tab.rows, tableName);
+    setSchema(ddl);
+    setCleanedRows(rows);
     setSchemaKey(tableName);
     setShowSchema(true);
   }
@@ -67,20 +72,31 @@ export default function TablesPage() {
   async function acceptSchema() {
     const activeTab = tabs[active];
     const tableName = getTableName(activeTab);
+    setLoadingSchema(true);
     try {
-      // const db = await getDB();
-      // await db.exec(schema);
-      // for (const row of activeTab.rows.slice(1)) {
-      //   const values = row.map(v => `'${v}'`).join(",");
-      //   await db.exec(`INSERT INTO table_name VALUES (${values})`);
-      // }
+      const db = await getDB();
+      await db.exec(`DROP TABLE IF EXISTS "${tableName}"`);
+      await db.exec(schema);
+      for (const row of cleanedRows.slice(1)) {
+        const values = row
+          .map(v => {
+            if (v === "" || v == null) return "NULL";
+            return `'${String(v).replace(/'/g, "''")}'`;
+          })
+          .join(",");
+        await db.exec(`INSERT INTO "${tableName}" VALUES (DEFAULT, ${values})`);
+      }
       saveSchema(schemaKey, schema);
       setShowSchema(false);
-      showToast("Schema accepted", "success");
-    } catch {
-      // const db = await getDB();
-      // await db.exec(`DROP TABLE IF EXISTS "${tableName}"`);
+      showToast("Table loaded successfully", "success");
+    } catch (err) {
+      try {
+        const db = await getDB();
+        await db.exec(`DROP TABLE IF EXISTS "${tableName}"`);
+      } catch {}
       showToast("Failed to load table into database", "error");
+    } finally {
+      setLoadingSchema(false);
     }
   }
 
@@ -123,7 +139,7 @@ export default function TablesPage() {
       const results: Tab[] = data.valueRanges.map(
         (range: any, i: number) => ({
           name: `${fileName} - ${sheetNames[i]}`,
-          rows: range.values || [],
+          rows: removeEmptyTopRows(range.values || []),
         })
       );
 
@@ -179,11 +195,6 @@ export default function TablesPage() {
                   }
                 `}
               >
-                <div
-                  className={`w-2 h-2 rounded-full ${
-                    hasSchema ? "bg-green-500" : "bg-red-500"
-                  }`}
-                />
                 <span className="truncate max-w-[180px]">
                   {tab.name}
                 </span>
@@ -254,9 +265,13 @@ export default function TablesPage() {
 
               <button
                 onClick={acceptSchema}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 cursor-pointer"
+                disabled={loadingSchema}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 cursor-pointer flex items-center gap-2"
               >
-                Accept
+                {loadingSchema && (
+                  <RefreshCw size={16} className="animate-spin" />
+                )}
+                {loadingSchema ? "Loading..." : "Accept"}
               </button>
 
             </div>

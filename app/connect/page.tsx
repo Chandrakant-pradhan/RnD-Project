@@ -5,6 +5,7 @@ import { useGoogleLogin } from "@react-oauth/google";
 import { LogOut, Cloud, FileSpreadsheet, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useToast } from "../components/ToastProvider";
+import { removeEmptyTopRows } from "../lib/removeEmptyRows";
 
 export default function ConnectPage() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -90,7 +91,7 @@ export default function ConnectPage() {
       const results = data.valueRanges.map(
         (range: any, i: number) => ({
           name: `${file.name} - ${sheetNames[i]}`,
-          rows: range.values || [],
+          rows: removeEmptyTopRows(range.values || []),
         })
       );
 
