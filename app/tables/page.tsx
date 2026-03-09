@@ -35,19 +35,6 @@ export default function TablesPage() {
     }
   }, []);
 
-  function getInferredSheets() {
-    const stored = sessionStorage.getItem("inferredSheets");
-    return stored ? JSON.parse(stored) : {};
-  }
-
-  function saveSchema(key: string, schema: string) {
-    const inferred = getInferredSheets();
-    inferred[key] = schema;
-    sessionStorage.setItem(
-      "inferredSheets",
-      JSON.stringify(inferred)
-    );
-  }
 
   function getTableName(tab: any): string {
     const [fileName, sheetNameRaw] = tab.name.split(" - ");
@@ -84,9 +71,8 @@ export default function TablesPage() {
             return `'${String(v).replace(/'/g, "''")}'`;
           })
           .join(",");
-        await db.exec(`INSERT INTO "${tableName}" VALUES (DEFAULT, ${values})`);
+        await db.exec(`INSERT INTO "${tableName}" VALUES (${values})`);
       }
-      saveSchema(schemaKey, schema);
       setShowSchema(false);
       showToast("Table loaded successfully", "success");
     } catch (err) {
@@ -168,9 +154,6 @@ export default function TablesPage() {
   }
 
   const activeTab = tabs[Math.min(active, tabs.length - 1)];
-  const inferred = getInferredSheets();
-  const source = sessionStorage.getItem("sheetSource");
-  const fileId = source ? JSON.parse(source).fileId : "";
 
   return (
     <div className="p-6 h-full flex flex-col">
@@ -180,7 +163,6 @@ export default function TablesPage() {
         <div className="flex gap-2 overflow-x-auto scrollbar-thin">
           {tabs.map((tab, i) => {
             const key = getTableName(tab);
-            const hasSchema = inferred[key];
             return (
               <div
                 key={i}

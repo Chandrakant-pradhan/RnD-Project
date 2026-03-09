@@ -96,7 +96,6 @@ export async function inferTable(
 
   const ddl = `
 CREATE TABLE ${sanitize(filename)} (
-  primary_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   ${columnsDDL.join(",\n  ")}
 );
 `.trim();
