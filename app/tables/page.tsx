@@ -167,6 +167,145 @@ export default function TablesPage() {
     showToast("CSV exported successfully", "success");
   }
 
+  async function saveToDrive(tab: Tab) {
+    const token = sessionStorage.getItem("accessToken");
+  
+    if (!token) {
+      showToast("Google authentication missing", "error");
+      return;
+    }
+  
+    try {
+      const folderName = "DBVisualizer";
+  
+      /* ------------------------------------------------ */
+      /* 1️⃣ Find folder */
+      /* ------------------------------------------------ */
+  
+      const search = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      );
+  
+      const searchData = await search.json();
+  
+      let folderId = searchData.files?.[0]?.id;
+  
+      /* ------------------------------------------------ */
+      /* 2️⃣ Create folder if it doesn't exist */
+      /* ------------------------------------------------ */
+  
+      if (!folderId) {
+  
+        const createFolder = await fetch(
+          "https://www.googleapis.com/drive/v3/files",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              name: folderName,
+              mimeType: "application/vnd.google-apps.folder"
+            })
+          }
+        );
+  
+        const folder = await createFolder.json();
+        folderId = folder.id;
+      }
+  
+      /* ------------------------------------------------ */
+      /* 3️⃣ Convert table to CSV */
+      /* ------------------------------------------------ */
+  
+      const csvContent = tab.rows
+        .map(row =>
+          row
+            .map(cell =>
+              `"${String(cell ?? "").replace(/"/g, '""')}"`
+            )
+            .join(",")
+        )
+        .join("\n");
+  
+      /* ------------------------------------------------ */
+      /* 4️⃣ Upload CSV to Drive */
+      /* ------------------------------------------------ */
+  
+      const metadata = {
+        name: `${getTableName(tab)}.csv`,
+        parents: [folderId]
+      };
+  
+      const form = new FormData();
+  
+      form.append(
+        "metadata",
+        new Blob([JSON.stringify(metadata)], { type: "application/json" })
+      );
+  
+      form.append(
+        "file",
+        new Blob([csvContent], { type: "text/csv" })
+      );
+  
+      const upload = await fetch(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`
+          },
+          body: form
+        }
+      );
+  
+      const file = await upload.json();
+  
+      /* ------------------------------------------------ */
+      /* 5️⃣ Create shareable link */
+      /* ------------------------------------------------ */
+  
+      await fetch(
+        `https://www.googleapis.com/drive/v3/files/${file.id}/permissions`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            role: "reader",
+            type: "anyone"
+          })
+        }
+      );
+  
+      const link = `https://drive.google.com/drive/folders/${folderId}`;
+  
+      /* ------------------------------------------------ */
+      /* 6️⃣ Copy to clipboard */
+      /* ------------------------------------------------ */
+  
+      await navigator.clipboard.writeText(link);
+  
+      /* ------------------------------------------------ */
+      /* 7️⃣ Toast */
+      /* ------------------------------------------------ */
+  
+      showToast("Saved to Google Drive. Link copied to clipboard!", "success");
+  
+    } catch (err) {
+      showToast("Failed to save to Google Drive", "error");
+    }
+  }
+
   function closeTab(index: number) {
     const updated = tabs.filter((_, i) => i !== index);
     setTabs(updated);
@@ -360,7 +499,7 @@ export default function TablesPage() {
 
               <button
                 onClick={() => {
-                  showToast("Google Drive export coming soon", "info");
+                  saveToDrive(tabs[openMenu]);
                   setOpenMenu(null);
                 }}
                 className="
