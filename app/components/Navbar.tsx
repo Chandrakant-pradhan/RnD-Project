@@ -14,7 +14,7 @@ export default function Navbar() {
           >
             <Database className="w-6 h-6 text-blue-600" />
             <h1 className="text-xl font-bold text-slate-800">
-              DB Visualizer
+              ShQL
             </h1>
           </Link>
         </div>
