@@ -1,6 +1,6 @@
 "use client"
 
-import { Home, FileText, Upload, Database, FileSpreadsheet } from "lucide-react"
+import { Home, FileText, Upload, Database, FileSpreadsheet, HardDriveDownload} from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
@@ -13,6 +13,7 @@ export default function Sidebar() {
     { name: "File Upload", icon: Upload, path: "/upload" },
     { name: "View Tables", icon: Database, path: "/tables" },
     { name: "Google Sheets", icon: FileSpreadsheet, path: "/connect" },
+    { name: "Backup & Restore", icon: HardDriveDownload, path: "/backup-restore"},
   ]
 
   return (

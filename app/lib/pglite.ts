@@ -12,3 +12,24 @@ export async function getDB() {
   }
   return db;
 }
+
+export async function removeDB(){
+  db = await getDB();
+  if(db){
+    await db.close();
+  }
+  indexedDB.deleteDatabase("/pglite/db");
+
+  window.location.reload();
+  
+}
+
+export async function loadDB(file: File): Promise<PGlite> {
+  
+  db = await PGlite.create({
+    dataDir: "idb://db",
+    loadDataDir: file,
+  });
+
+  return db;
+}

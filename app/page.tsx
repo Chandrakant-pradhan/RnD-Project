@@ -2,7 +2,7 @@
 "use client"
 
 import { useRouter } from "next/navigation";
-import { FileText, Database, Upload, FileSpreadsheet } from "lucide-react"
+import { FileText, Database, Upload, FileSpreadsheet, HardDriveDownload} from "lucide-react"
 
 export default function Homepage() {
   const router = useRouter()
@@ -32,6 +32,12 @@ export default function Homepage() {
       icon: FileSpreadsheet,
       path: "/connect",
     },
+    {
+      title: "Backup & Restore",
+      description: "Back up your database or restore it using a .sql file",
+      icon : HardDriveDownload,
+      path: "/backup-restore"
+    }
   ]
 
   return (
