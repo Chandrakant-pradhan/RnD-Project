@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Table , Search, Trash2} from "lucide-react";
 import { getDB } from "../lib/pglite";
 import { useToast } from "../components/ToastProvider";
+import { useDB } from "../context/db-context";
 import Editor from "@monaco-editor/react";  
 
 const SQL_KEYWORDS = [
@@ -29,6 +30,7 @@ export default function QueryPage() {
 
   const router = useRouter();
   const { showToast } = useToast();
+  const { activeDB } = useDB();
 
   async function loadTables(database: any) {
     try {
@@ -107,7 +109,7 @@ export default function QueryPage() {
       await loadTables(database);
     }
     init();
-  }, []);
+  }, [activeDB]);
 
   useEffect(() => {
     if (!monacoRef.current || corpus.length === 0) return;

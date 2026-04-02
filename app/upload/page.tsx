@@ -4,11 +4,13 @@ import { useState , useEffect} from "react";
 import { Upload } from "lucide-react";
 import { getDB } from "../lib/pglite";
 import { useToast } from "../components/ToastProvider";
+import { useDB } from "../context/db-context";
 
 export default function FileUploader() {
   const [db, setDb] = useState<any>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const { showToast } = useToast();
+  const { activeDB } = useDB();
 
   useEffect(() => {
       async function init() {
@@ -16,7 +18,7 @@ export default function FileUploader() {
         setDb(database);
       }
       init();
-  }, []);
+  }, [activeDB]);
 
   const handleFileUpload = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -29,7 +31,6 @@ export default function FileUploader() {
     try {
       const sql = await file.text();
 
-      // Execute SQL
       await db.exec(sql);
       showToast("File loaded successfully" , "success");
 
@@ -40,13 +41,11 @@ export default function FileUploader() {
 
   return (
     <div className="max-w-xl p-6">
-      {/* Title */}
       <h1 className="text-2xl font-bold text-slate-800">File Upload</h1>
       <p className="text-slate-500 mt-2 mb-6">
         Upload a SQL file to execute DDL or DML commands.
       </p>
 
-      {/* Upload Card */}
       <label
         htmlFor="sql-upload"
         className="cursor-pointer block bg-white border-2 border-dashed border-slate-300 rounded-xl p-8
@@ -71,7 +70,6 @@ export default function FileUploader() {
         />
       </label>
 
-      {/* File Name */}
       {fileName && (
         <p className="mt-4 text-sm text-slate-600">
           Selected file: <span className="font-medium">{fileName}</span>
