@@ -55,7 +55,7 @@ export default function ToastProvider({
               ? "bg-red-600"
               : toast.type === "success"
               ? "bg-green-600"
-              : "bg-blue-600";
+              : "bg-yellow-500";
 
           return (
             <div

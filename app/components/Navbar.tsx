@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react"
 import { createDB, renameDB, deleteDB, setActiveDB } from "../lib/pglite"
 import { useDB } from "../context/db-context"
 import { useToast } from "../components/ToastProvider";
+import { useRouter } from "next/navigation";
 
 export default function Navbar() {
   const { dbs, activeDB: active, setActive, refresh } = useDB()
@@ -15,6 +16,7 @@ export default function Navbar() {
   const dropdownRef = useRef<HTMLDivElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const { showToast } = useToast();
+  const router = useRouter();
 
   useEffect(() => {
     if (renamingDB && renameInputRef.current) {
@@ -37,6 +39,7 @@ export default function Navbar() {
   const handleSelect = (name: string) => {
     setActive(name)
     setOpen(false)
+    router.push("/query");
   }
 
   const handleCreate = async () => {
