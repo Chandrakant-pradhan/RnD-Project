@@ -2,10 +2,20 @@
 
 import { useState, useEffect } from "react";
 import { useGoogleLogin } from "@react-oauth/google";
-import { LogOut, Cloud, Link2, ArrowRight } from "lucide-react";
+import { LogOut, Cloud, Link2, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useToast } from "../components/ToastProvider";
 import { removeEmptyTopRows } from "../lib/removeEmptyRows";
+import SheetPreview from "../components/SheetPreview";
+
+interface PreviewState {
+  rawValues: string[][];  
+  sheetNames: string[];
+  activeTabIdx: number;
+  fileId: string;
+  fileName: string;
+  headers: Record<string, string>;
+}
 
 function extractSheetId(input: string): string | null {
   const match = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -17,9 +27,11 @@ function extractSheetId(input: string): string | null {
 export default function ConnectPage() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [sheetLink, setSheetLink] = useState("");
   const [linkError, setLinkError] = useState("");
+  const [fetchingPreview, setFetchingPreview] = useState(false);
+  const [preview, setPreview]           = useState<PreviewState | null>(null);
+  const [loadingFinal, setLoadingFinal] = useState(false);
   const [userProfile, setUserProfile] = useState<any>(null);
   const { showToast } = useToast();
   const router = useRouter();
@@ -64,16 +76,18 @@ export default function ConnectPage() {
 
   useEffect(() => {
     if (accessToken && pendingSheetId) {
-      openSheet(pendingSheetId, true);
+      loadPreview(pendingSheetId);
       setPendingSheetId(null);
     }
   }, [accessToken]);
 
-  async function openSheet(fileId: string, retry = false) {
+  async function loadPreview(fileId: string) {
     try {
-      setLoading(true);
+      setFetchingPreview(true);
+      setLinkError("");
+      setPreview(null);
 
-      let headers: any = {};
+      let headers: Record<string, string> = {};
 
       let metaRes = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${fileId}`,
@@ -112,34 +126,81 @@ export default function ConnectPage() {
       const fileName = meta.properties?.title ?? "Untitled";
       const sheetNames = meta.sheets.map(
         (s: any) => s.properties.title
-      );
+      ) as string[];
 
-      const ranges = sheetNames
-        .map((name: string) => `ranges=${encodeURIComponent(name)}`)
-        .join("&");
-
-      const dataRes = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${fileId}/values:batchGet?${ranges}`,
+      const firstTab  = sheetNames[0];
+      const valuesRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${fileId}/values/${encodeURIComponent(firstTab)}`,
         { headers }
       );
+      const valuesData = await valuesRes.json();
+      const rawValues: string[][] = valuesData.values ?? [];
 
-      const data = await dataRes.json();
+      setPreview({ rawValues, sheetNames, activeTabIdx: 0, fileId, fileName, headers });
+    } catch {
+      showToast("Error loading sheet preview", "error");
+    } finally {
+      setFetchingPreview(false);
+    }
+  }
 
-      const results = data.valueRanges.map(
-        (range: any, i: number) => ({
+  async function switchPreviewTab(idx: number) {
+    if (!preview) return;
+    const tabName = preview.sheetNames[idx];
+    try {
+      setFetchingPreview(true);
+      const res  = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${preview.fileId}/values/${encodeURIComponent(tabName)}`,
+        { headers: preview.headers }
+      );
+      const data = await res.json();
+      setPreview({ ...preview, rawValues: data.values ?? [], activeTabIdx: idx });
+    } catch {
+      showToast("Failed to load tab", "error");
+    } finally {
+      setFetchingPreview(false);
+    }
+  }
+
+  async function openSheet(range: string | null) {
+    if (!preview) return;
+    const { fileId, fileName, sheetNames, headers, activeTabIdx } = preview;
+
+    try {
+      setLoadingFinal(true);
+      let results: { name: string; rows: string[][] }[];
+
+      if (range) {
+        const tabName    = sheetNames[activeTabIdx];
+        const rangeParam = `${encodeURIComponent(tabName)}!${range}`;
+        const res        = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${fileId}/values/${rangeParam}`,
+          { headers }
+        );
+        const data = await res.json();
+        results = [{
+          name: `${fileName} - ${tabName} (${range})`,
+          rows: removeEmptyTopRows(data.values ?? []),
+        }];
+      } else {
+        const ranges  = sheetNames.map((n) => `ranges=${encodeURIComponent(n)}`).join("&");
+        const dataRes = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${fileId}/values:batchGet?${ranges}`,
+          { headers }
+        );
+        const data = await dataRes.json();
+        results = data.valueRanges.map((range: any, i: number) => ({
           name: `${fileName} - ${sheetNames[i]}`,
           rows: removeEmptyTopRows(range.values || []),
-        })
-      );
+        }));
+      }
 
       sessionStorage.setItem("sheets", JSON.stringify(results));
-
       router.push("/tables");
-
-    } catch (err) {
+    } catch {
       showToast("Error opening sheet", "error");
     } finally {
-      setLoading(false);
+      setLoadingFinal(false);
     }
   }
 
@@ -150,14 +211,14 @@ export default function ConnectPage() {
       setLinkError("Please enter a valid Google Sheets URL.");
       return;
     }
-    await openSheet(fileId);
+    await loadPreview(fileId);
   }
 
   if (!ready) return null;
 
   return (
-    <div className="p-8 max-w-4xl">
-      <h1 className="text-2xl font-bold mb-8 flex items-center gap-2">
+    <div className="p-8 max-w-4xl space-y-6">
+      <h1 className="text-2xl font-bold flex items-center gap-2">
         <Cloud className="w-6 h-6 text-blue-600" />
         Google Sheets
       </h1>
@@ -166,9 +227,9 @@ export default function ConnectPage() {
         {userProfile && (
           <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-3">
-              <img
-                src={userProfile.picture}
-                className="w-9 h-9 rounded-full"
+              <img 
+              src={userProfile.picture} 
+              className="w-9 h-9 rounded-full"
               />
               <div>
                 <p className="text-sm font-semibold">{userProfile.name}</p>
@@ -178,8 +239,8 @@ export default function ConnectPage() {
             <button
               onClick={logout}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md
-                        text-xs font-medium text-red-500
-                        hover:bg-red-50 hover:text-red-600
+                        text-xs font-medium text-red-500 
+                        hover:bg-red-50 hover:text-red-600 
                         transition-colors cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -199,6 +260,7 @@ export default function ConnectPage() {
               type="text"
               value={sheetLink}
               onChange={(e) => setSheetLink(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
               placeholder="https://docs.google.com/spreadsheets/d/..."
               className="flex-1 bg-transparent outline-none text-sm"
             />
@@ -210,10 +272,12 @@ export default function ConnectPage() {
 
           <button
             onClick={handleSubmit}
-            disabled={loading}
-            className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
+            disabled={fetchingPreview}
+            className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60 transition-colors"
           >
-            {loading ? "Loading..." : "Open Sheet"}
+            {fetchingPreview ? (
+              <><Loader2 className="w-4 h-4 animate-spin" />Loading preview…</>
+            ) : "Preview Sheet"}
           </button>
         </div>
 
@@ -221,6 +285,35 @@ export default function ConnectPage() {
           Works with public sheets and private sheets you have access to.
         </p>
       </div>
+      {preview && (
+        <div className="space-y-4">
+          {preview.sheetNames.length > 1 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+              {preview.sheetNames.map((name, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => switchPreviewTab(idx)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                    idx === preview.activeTabIdx
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "bg-white border text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <SheetPreview
+            rawValues={preview.rawValues}
+            onOpen={openSheet}
+            sheetName={`${preview.fileName} — ${preview.sheetNames[preview.activeTabIdx]}`}
+            loading={fetchingPreview}
+            isOpening={loadingFinal}
+          />
+        </div>
+      )}
     </div>
   );
 }
