@@ -194,8 +194,14 @@ export default function ConnectPage() {
           rows: removeEmptyTopRows(range.values || []),
         }));
       }
-
       sessionStorage.setItem("sheets", JSON.stringify(results));
+      sessionStorage.setItem("sheetSource", JSON.stringify({
+        fileId,
+        fileName,
+        range: range ?? null,
+        tabIdx: activeTabIdx,
+        sheetNames,
+      }));
       router.push("/tables");
     } catch {
       showToast("Error opening sheet", "error");

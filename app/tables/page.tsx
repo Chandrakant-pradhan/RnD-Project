@@ -94,49 +94,49 @@ export default function TablesPage() {
   async function syncSheets() {
     const token = sessionStorage.getItem("accessToken");
     const source = sessionStorage.getItem("sheetSource");
-
     if (!token || !source) return;
-
+  
     setSyncing(true);
-
-    const { fileId, fileName } = JSON.parse(source);
-
+    const { fileId, fileName, range, tabIdx, sheetNames } = JSON.parse(source);
+    const headers = { Authorization: `Bearer ${token}` };
+  
     try {
-      const metaRes = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${fileId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      const meta = await metaRes.json();
-      const sheetNames = meta.sheets.map(
-        (s: any) => s.properties.title
-      );
-
-      const ranges = sheetNames
-        .map((name: string) => `ranges=${encodeURIComponent(name)}`)
-        .join("&");
-
-      const dataRes = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${fileId}/values:batchGet?${ranges}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      const data = await dataRes.json();
-
-      const results: Tab[] = data.valueRanges.map(
-        (range: any, i: number) => ({
-          name: `${fileName} - ${sheetNames[i]}`,
-          rows: removeEmptyTopRows(range.values || []),
-        })
-      );
-
-      sessionStorage.setItem("sheets", JSON.stringify(results));
-      setTabs(results);
-      setActive(results.length - 1);
+      if (range) {
+        const tabName    = sheetNames[tabIdx];
+        const rangeParam = `${encodeURIComponent(tabName)}!${range}`;
+        const res        = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${fileId}/values/${rangeParam}`,
+          { headers }
+        );
+        const data = await res.json();
+        const results: Tab[] = [{
+          name: `${fileName} - ${tabName} (${range})`,
+          rows: removeEmptyTopRows(data.values ?? []),
+        }];
+        sessionStorage.setItem("sheets", JSON.stringify(results));
+        setTabs(results);
+        setActive(0);
+      } else {
+        const metaRes = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${fileId}`,
+          { headers }
+        );
+        const meta       = await metaRes.json();
+        const allSheets  = meta.sheets.map((s: any) => s.properties.title) as string[];
+        const ranges     = allSheets.map((n) => `ranges=${encodeURIComponent(n)}`).join("&");
+        const dataRes    = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${fileId}/values:batchGet?${ranges}`,
+          { headers }
+        );
+        const data    = await dataRes.json();
+        const results: Tab[] = data.valueRanges.map((r: any, i: number) => ({
+          name: `${fileName} - ${allSheets[i]}`,
+          rows: removeEmptyTopRows(r.values || []),
+        }));
+        sessionStorage.setItem("sheets", JSON.stringify(results));
+        setTabs(results);
+        setActive(results.length - 1);
+      }
     } catch {
       showToast("Error syncing data", "error");
     } finally {
