@@ -5,6 +5,7 @@ import { Upload } from "lucide-react";
 import { getDB } from "../lib/pglite";
 import { useToast } from "../components/ToastProvider";
 import { useDB } from "../context/db-context";
+import { setTableSchema } from "../lib/schema";
 
 export default function FileUploader() {
   const [db, setDb] = useState<any>(null);
@@ -32,6 +33,13 @@ export default function FileUploader() {
       const sql = await file.text();
 
       await db.exec(sql);
+      const createTableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["']?(\w+)["']?\s*\([^;]+\);/gi;
+      let match;
+      while ((match = createTableRegex.exec(sql)) !== null) {
+         const tableName = match[1].toLowerCase();
+         const ddl = match[0];
+         setTableSchema(activeDB, tableName, ddl); // save schema 
+      }
       showToast("File loaded successfully" , "success");
 
     } catch (err: any) {

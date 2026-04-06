@@ -7,6 +7,8 @@ import { useToast } from "../components/ToastProvider";
 import { inferTable } from "../lib/inference";
 import { getDB } from "../lib/pglite";
 import { removeEmptyTopRows } from "../lib/removeEmptyRows";
+import { setTableSchema } from "../lib/schema";
+import { useDB } from "../context/db-context";
 
 interface Tab {
   name: string;
@@ -25,6 +27,7 @@ export default function TablesPage() {
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
+  const { activeDB } = useDB();
 
   useEffect(() => {
     const stored = sessionStorage.getItem("sheets");
@@ -79,6 +82,9 @@ export default function TablesPage() {
         await db.exec(`INSERT INTO "${tableName}" VALUES (${values})`);
       }
       setShowSchema(false);
+
+      setTableSchema(activeDB , tableName, schema); //save the schema in local storage
+
       showToast("Table loaded successfully", "success");
     } catch (err) {
       try {

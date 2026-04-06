@@ -7,6 +7,8 @@ import { getDB } from "../lib/pglite";
 import { useToast } from "../components/ToastProvider";
 import { useDB } from "../context/db-context";
 import Editor from "@monaco-editor/react";  
+import { getTableSchema } from "../lib/schema";
+import { deleteTableSchema } from "../lib/schema";
 
 const SQL_KEYWORDS = [
   "SELECT","FROM","WHERE","INSERT","INTO","VALUES","UPDATE","SET",
@@ -24,6 +26,7 @@ export default function QueryPage() {
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [columns, setColumns] = useState<string[]>([]);
   const [corpus, setCorpus] = useState<string[]>([]);
+  const [ddl, setDdl] = useState<string | null>(null);
 
   const monacoRef = useRef<any>(null);
   const providerRef = useRef<any>(null);
@@ -84,6 +87,7 @@ export default function QueryPage() {
       const cols = result.rows.map((r: any) => r.column_name);
       setColumns(cols);
       setSelectedTable(table);
+      setDdl(getTableSchema(activeDB, table));
   
     } catch {
       showToast("Failed loading columns", "error");
@@ -97,6 +101,7 @@ export default function QueryPage() {
       await db.exec(`DROP TABLE IF EXISTS "${tableName}"`);
       showToast(`Table ${tableName} removed`, "success");
       await loadTables(db);
+      deleteTableSchema(activeDB, tableName); 
     } catch {
       showToast("Failed to drop table", "error");
     }
@@ -196,6 +201,56 @@ export default function QueryPage() {
       showToast("Query execution failed", "error");
     }
   };
+
+  function renderDDL(ddl: string) {
+    const SQL_KW = [
+      "CREATE TABLE","CREATE","TABLE","PRIMARY KEY","NOT NULL","DEFAULT",
+      "SERIAL","INTEGER","TEXT","VARCHAR","BOOLEAN","TIMESTAMP","BIGINT",
+      "FLOAT","NUMERIC","DATE","INT","REFERENCES","UNIQUE","IF NOT EXISTS",
+    ];
+    const kwPattern = new RegExp(`\\b(${SQL_KW.map(k => k.replace(/ /g, "\\s+")).join("|")})\\b`, "gi");
+  
+    let globalKey = 0; 
+  
+    return ddl.split("\n").map((line, i) => {
+      const parts: React.ReactNode[] = [];
+      let last = 0;
+      let match;
+      const regex = new RegExp(kwPattern.source, "gi");
+  
+      while ((match = regex.exec(line)) !== null) {
+        if (match.index > last) {
+          const between = line.slice(last, match.index);
+          parts.push(
+            ...between.split(/(\b[a-z_][a-z_0-9]*\b)/g).map((seg) =>
+              /^[a-z_][a-z_0-9]*$/.test(seg)
+                ? <span key={globalKey++} className="text-emerald-700">{seg}</span>
+                : <span key={globalKey++} className="text-slate-500">{seg}</span>
+            )
+          );
+        }
+        parts.push(
+          <span key={globalKey++} className="text-blue-600 font-medium">
+            {match[0]}
+          </span>
+        );
+        last = match.index + match[0].length;
+      }
+  
+      if (last < line.length) {
+        const rest = line.slice(last);
+        parts.push(
+          ...rest.split(/(\b[a-z_][a-z_0-9]*\b)/g).map((seg) =>
+            /^[a-z_][a-z_0-9]*$/.test(seg)
+              ? <span key={globalKey++} className="text-emerald-700">{seg}</span>
+              : <span key={globalKey++} className="text-slate-500">{seg}</span>
+          )
+        );
+      }
+  
+      return <div key={i}>{parts}</div>;
+    });
+  }
 
   const filteredTables = tables.filter((t) =>
     t.toLowerCase().includes(search.toLowerCase())
@@ -306,25 +361,46 @@ export default function QueryPage() {
                 "
               >
 
-                <div className="p-2 bg-blue-100 rounded-lg">
+                <div className="p-2 bg-blue-100 rounded-lg flex-shrink-0 self-start mt-0.5">
                   <Table className="w-5 h-5 text-blue-600" />
                 </div>
 
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-slate-800 truncate">
                     {t}
                   </p>
 
                   {selectedTable === t && columns.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {columns.map((col) => (
-                        <span
-                          key={col}
-                          className="text-xs px-3 py-1 bg-blue-100 text-blue-700 rounded-full font-medium"
-                        >
-                          {col}
-                        </span>
-                      ))}
+                    <div
+                      className="mt-3 pt-3 border-t border-slate-200"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+                        Columns
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {columns.map((col) => (
+                          <span
+                            key={col}
+                            className="text-xs px-3 py-1 bg-blue-100 text-blue-700 rounded-full font-medium"
+                          >
+                            {col}
+                          </span>
+                        ))}
+                      </div>
+
+                      {ddl && (
+                        <>
+                          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mt-4 mb-2">
+                            DDL
+                          </p>
+                          <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 overflow-x-auto">
+                            <pre className="text-xs font-mono leading-relaxed whitespace-pre">
+                              {renderDDL(ddl)}
+                            </pre>
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -333,7 +409,7 @@ export default function QueryPage() {
                     e.stopPropagation();
                     dropTable(t);
                   }}
-                  className="opacity-0 group-hover:opacity-100 p-2 rounded-md hover:bg-red-100 transition"
+                  className="opacity-0 group-hover:opacity-100 p-2 rounded-md hover:bg-red-100 transition flex-shrink-0 self-start"
                 >
                   <Trash2 className="w-4 h-4 text-red-500" />
                 </button>
