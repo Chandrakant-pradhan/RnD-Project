@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RefreshCw, X, Database,Save, FileDown, CloudUpload} from "lucide-react";
+import { RefreshCw, X, Database, Save, FileDown } from "lucide-react";
 import SpreadsheetViewer from "../components/SpreadsheetViewer";
 import { useToast } from "../components/ToastProvider";
 import { inferTable } from "../lib/inference";
@@ -15,6 +15,51 @@ interface Tab {
   rows: string[][];
 }
 
+function parseCSV(text: string): string[][] {
+  let rows: string[][] = [];
+  for (const line of text.split("\n")) {
+    if (line.trim() === "") continue;
+    const row: string[] = [];
+    let inQuotes = false;
+    let cell = "";
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { cell += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (ch === "," && !inQuotes) {
+        row.push(cell); cell = "";
+      } else {
+        cell += ch;
+      }
+    }
+    row.push(cell);
+    rows.push(row);
+  }
+  rows = removeEmptyTopRows(rows);
+  return rows;
+}
+
+function parseRange(range: string): { r1: number; c1: number; r2: number; c2: number } | null {
+  const m = range.trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+  if (!m) return null;
+  const colIdx = (s: string) => {
+    let n = 0;
+    for (let i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
+    return n - 1;
+  };
+  return { c1: colIdx(m[1]), r1: +m[2] - 1, c2: colIdx(m[3]), r2: +m[4] - 1 };
+}
+
+function sliceRows(rawValues: string[][], range: string | null): string[][] {
+  if (!range) return rawValues;
+  const p = parseRange(range);
+  if (!p) return rawValues;
+  return rawValues
+    .slice(p.r1, p.r2 + 1)
+    .map(row => row.slice(p.c1, p.c2 + 1));
+}
+
 export default function TablesPage() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<number>(0);
@@ -26,7 +71,6 @@ export default function TablesPage() {
   const [cleanedRows, setCleanedRows] = useState<string[][]>([]);
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [openMenu, setOpenMenu] = useState<number | null>(null);
-  const [exporting, setExporting] = useState(false);
   const { activeDB } = useDB();
 
   useEffect(() => {
@@ -98,51 +142,34 @@ export default function TablesPage() {
   }
 
   async function syncSheets() {
-    const token = sessionStorage.getItem("accessToken");
     const source = sessionStorage.getItem("sheetSource");
-    if (!token || !source) return;
-  
+    if (!source) {
+      showToast("No sheet source found", "error");
+      return;
+    }
+
     setSyncing(true);
-    const { fileId, fileName, range, tabIdx, sheetNames } = JSON.parse(source);
-    const headers = { Authorization: `Bearer ${token}` };
-  
+    const { fileId, gid, range } = JSON.parse(source);
+
     try {
-      if (range) {
-        const tabName    = sheetNames[tabIdx];
-        const rangeParam = `${encodeURIComponent(tabName)}!${range}`;
-        const res        = await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${fileId}/values/${rangeParam}`,
-          { headers }
-        );
-        const data = await res.json();
-        const results: Tab[] = [{
-          name: `${fileName} - ${tabName} (${range})`,
-          rows: removeEmptyTopRows(data.values ?? []),
-        }];
-        sessionStorage.setItem("sheets", JSON.stringify(results));
-        setTabs(results);
-        setActive(0);
-      } else {
-        const metaRes = await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${fileId}`,
-          { headers }
-        );
-        const meta       = await metaRes.json();
-        const allSheets  = meta.sheets.map((s: any) => s.properties.title) as string[];
-        const ranges     = allSheets.map((n) => `ranges=${encodeURIComponent(n)}`).join("&");
-        const dataRes    = await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${fileId}/values:batchGet?${ranges}`,
-          { headers }
-        );
-        const data    = await dataRes.json();
-        const results: Tab[] = data.valueRanges.map((r: any, i: number) => ({
-          name: `${fileName} - ${allSheets[i]}`,
-          rows: removeEmptyTopRows(r.values || []),
-        }));
-        sessionStorage.setItem("sheets", JSON.stringify(results));
-        setTabs(results);
-        setActive(results.length - 1);
+      const res = await fetch(
+        `https://docs.google.com/spreadsheets/d/${fileId}/export?format=csv&gid=${gid}`,
+        { redirect: "follow" }
+      );
+
+      if (!res.ok || res.url.includes("accounts.google.com") || (res.headers.get("content-type") ?? "").includes("text/html")) {
+        showToast("Sheet is no longer accessible", "error");
+        return;
       }
+
+      const allRows = parseCSV(await res.text());
+      const rows = removeEmptyTopRows(sliceRows(allRows, range));
+      const name = range ? `Sheet (gid=${gid}) — ${range}` : `Sheet (gid=${gid})`;
+      const results: Tab[] = [{ name, rows }];
+
+      sessionStorage.setItem("sheets", JSON.stringify(results));
+      setTabs(results);
+      setActive(0);
     } catch {
       showToast("Error syncing data", "error");
     } finally {
@@ -160,132 +187,22 @@ export default function TablesPage() {
           .join(",")
       )
       .join("\n");
-  
+
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
   
     const url = URL.createObjectURL(blob);
-  
+
     const link = document.createElement("a");
     link.href = url;
     link.download = `${getTableName(tab)}.csv`;
-  
+
     document.body.appendChild(link);
     link.click();
-  
+
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  
-    showToast("CSV exported successfully", "success");
-  }
 
-  async function saveToDrive(tab: Tab) {
-    setExporting(true); 
-  
-    const token = sessionStorage.getItem("accessToken");
-  
-    if (!token) {
-      setExporting(false); 
-      showToast("Google authentication missing", "error");
-      return;
-    }
-  
-    try {
-      const folderName = "DBVisualizer";
-  
-      const search = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      );
-  
-      const searchData = await search.json();
-      let folderId = searchData.files?.[0]?.id;
-  
-      if (!folderId) {
-        const createFolder = await fetch(
-          "https://www.googleapis.com/drive/v3/files",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              name: folderName,
-              mimeType: "application/vnd.google-apps.folder"
-            })
-          }
-        );
-  
-        const folder = await createFolder.json();
-        folderId = folder.id;
-      }
-  
-      const csvContent = tab.rows
-        .map(row =>
-          row
-            .map(cell =>
-              `"${String(cell ?? "").replace(/"/g, '""')}"`
-            )
-            .join(",")
-        )
-        .join("\n");
-  
-      const metadata = {
-        name: `${getTableName(tab)}.csv`,
-        parents: [folderId]
-      };
-  
-      const form = new FormData();
-      form.append(
-        "metadata",
-        new Blob([JSON.stringify(metadata)], { type: "application/json" })
-      );
-      form.append(
-        "file",
-        new Blob([csvContent], { type: "text/csv" })
-      );
-  
-      const upload = await fetch(
-        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`
-          },
-          body: form
-        }
-      );
-  
-      const file = await upload.json();
-  
-      await fetch(
-        `https://www.googleapis.com/drive/v3/files/${file.id}/permissions`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            role: "reader",
-            type: "anyone"
-          })
-        }
-      );
-  
-      const link = `https://drive.google.com/drive/folders/${folderId}`;
-      await navigator.clipboard.writeText(link);
-  
-      showToast("Saved to Google Drive. Link copied!", "success");
-    } catch (err) {
-      showToast("Failed to save to Google Drive", "error");
-    } finally {
-      setExporting(false);
-    }
+    showToast("CSV exported successfully", "success");
   }
 
   function closeTab(index: number) {
@@ -349,7 +266,7 @@ export default function TablesPage() {
                         setOpenMenu(openMenu === i ? null : i);
                       }}
                       className="flex items-center justify-center w-7 h-7 rounded-md
-                                bg-white/30 hover:bg-yellow-500 text-white 
+                                bg-white/30 hover:bg-yellow-500 text-white
                                 transition cursor-pointer"
                     >
                       <Save size={14} />
@@ -375,13 +292,13 @@ export default function TablesPage() {
         <button
           onClick={syncSheets}
           disabled={syncing}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg 
+          className="flex items-center gap-2 px-4 py-2 rounded-lg
                      bg-blue-600 text-white hover:bg-blue-700
                      disabled:opacity-50 transition"
         >
-          <RefreshCw
-            size={16}
-            className={syncing ? "animate-spin" : ""}
+          <RefreshCw 
+            size={16} 
+            className={syncing ? "animate-spin" : ""} 
           />
           {syncing ? "Syncing..." : "Sync"}
         </button>
@@ -390,7 +307,7 @@ export default function TablesPage() {
       <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         <SpreadsheetViewer rows={activeTab.rows} />
       </div>
-      
+
       {showSchema && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center">
 
@@ -459,10 +376,10 @@ export default function TablesPage() {
                   setOpenMenu(null);
                 }}
                 className="
-                  w-full flex items-center gap-3
-                  px-4 py-3 rounded-lg
-                  border border-slate-200
-                  hover:bg-slate-50 transition
+                w-full flex items-center gap-3 
+                px-4 py-3 rounded-lg 
+                border border-slate-200 
+                hover:bg-slate-50 transition
                 "
               >
                 <div className="p-2 bg-slate-100 rounded-md">
@@ -478,66 +395,23 @@ export default function TablesPage() {
                   </p>
                 </div>
               </button>
-
-              <button
-                onClick={() => {
-                  saveToDrive(tabs[openMenu]);
-                  setOpenMenu(null);
-                }}
-                className="
-                  w-full flex items-center gap-3
-                  px-4 py-3 rounded-lg
-                  border border-slate-200
-                  hover:bg-slate-50 transition
-                "
-              >
-                <div className="p-2 bg-slate-100 rounded-md">
-                  <CloudUpload size={16} className="text-slate-600" />
-                </div>
-
-                <div className="text-left">
-                  <p className="text-sm font-medium text-slate-700">
-                    Save to Google Drive
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    Upload CSV directly to Drive
-                  </p>
-                </div>
-              </button>
-
             </div>
 
             <div className="px-6 py-4 border-t border-slate-100 flex justify-end">
               <button
                 onClick={() => setOpenMenu(null)}
                 className="
-                  px-4 py-2 text-sm
-                  bg-gray-200 rounded
-                  hover:bg-gray-300
-                  transition
+                px-4 py-2 text-sm 
+                bg-gray-200 rounded 
+                hover:bg-gray-300 
+                transition
                 "
               >
                 Cancel
               </button>
             </div>
-
-          </div>
-        </div>
-      )}
-
-      {exporting && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30">
-          
-          <div className="flex flex-col items-center gap-3">
             
-            <div className="w-10 h-10 border-4 border-slate-300 border-t-blue-600 rounded-full animate-spin"></div>
-
-            <p className="text-sm text-white font-medium">
-              Exporting to Drive
-            </p>
-
           </div>
-
         </div>
       )}
 
