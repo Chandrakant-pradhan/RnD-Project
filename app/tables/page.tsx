@@ -44,7 +44,6 @@ export default function TablesPage() {
   const { showToast } = useToast();
   const [showSchema, setShowSchema] = useState(false);
   const [schema, setSchema] = useState("");
-  const [schemaKey, setSchemaKey] = useState("");
   const [cleanedRows, setCleanedRows] = useState<string[][]>([]);
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [openMenu, setOpenMenu] = useState<number | null>(null);
@@ -67,8 +66,8 @@ export default function TablesPage() {
 
   function getTableName(tab: any): string {
     const [fileName, sheetNameRaw] = tab.name.split(" - ");
-    const sheetName = sheetNameRaw || "Sheet1";
-    const tableName = `${fileName}_${sheetName}`
+    const sheetName = sheetNameRaw || "";
+    const tableName = (sheetName ? `${fileName}_${sheetName}` : fileName)
       .replace(/\s+/g, "_")
       .replace(/[^\w]/g, "")
       .toLowerCase();
@@ -81,13 +80,16 @@ export default function TablesPage() {
     const { ddl, rows } = await inferTable(tab.rows, tableName);
     setSchema(ddl);
     setCleanedRows(rows);
-    setSchemaKey(tableName);
     setShowSchema(true);
   }
 
   async function acceptSchema() {
-    const activeTab = tabs[active];
-    const tableName = getTableName(activeTab);
+    const match = schema.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?/i);
+    if (!match) {
+      showToast("Could not parse table name from schema ", "error");
+      return;
+    }
+    const tableName = match[1];
     setLoadingSchema(true);
     try {
       const db = await getDB();
@@ -112,7 +114,7 @@ export default function TablesPage() {
         const db = await getDB();
         await db.exec(`DROP TABLE IF EXISTS "${tableName}"`);
       } catch {}
-      showToast("Failed to load table into database", "error");
+      showToast("Failed to load table into database , check schema", "error");
     } finally {
       setLoadingSchema(false);
     }
@@ -121,7 +123,7 @@ export default function TablesPage() {
   async function syncSheets() {
     const source = sessionStorage.getItem("sheetSource");
     if (!source) {
-      showToast("No sheet source found", "error");
+      showToast("Not a google sheet", "info");
       return;
     }
   

@@ -9,6 +9,7 @@ import { useDB } from "../context/db-context";
 import Editor from "@monaco-editor/react";  
 import { getTableSchema } from "../lib/schema";
 import { deleteTableSchema } from "../lib/schema";
+import SheetPreview from "../components/SheetPreview";
 
 const SQL_KEYWORDS = [
   "SELECT","FROM","WHERE","INSERT","INTO","VALUES","UPDATE","SET",
@@ -16,6 +17,17 @@ const SQL_KEYWORDS = [
   "GROUP BY","ORDER BY","LIMIT","OFFSET","AND","OR","NOT","NULL",
   "CREATE","TABLE","DROP","ALTER"
 ];
+
+function parseRange(range: string): { r1: number; c1: number; r2: number; c2: number } | null {
+  const m = range.trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+  if (!m) return null;
+  const colIdx = (s: string) => {
+    let n = 0;
+    for (let i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
+    return n - 1;
+  };
+  return { c1: colIdx(m[1]), r1: +m[2] - 1, c2: colIdx(m[3]), r2: +m[4] - 1 };
+}
 
 export default function QueryPage() {
   const [db, setDb] = useState<any>(null);
@@ -27,6 +39,8 @@ export default function QueryPage() {
   const [columns, setColumns] = useState<string[]>([]);
   const [corpus, setCorpus] = useState<string[]>([]);
   const [ddl, setDdl] = useState<string | null>(null);
+  const [previewRows, setPreviewRows] = useState<string[][] | null>(null);
+  const [isOpening, setIsOpening] = useState(false);
 
   const monacoRef = useRef<any>(null);
   const providerRef = useRef<any>(null);
@@ -158,6 +172,7 @@ export default function QueryPage() {
     if (!db) return;
 
     setError(null);
+    setPreviewRows(null);
 
     try {
       const result = await db.query(query);
@@ -179,28 +194,35 @@ export default function QueryPage() {
         ),
       ];
 
-      const queryTab = {
-        name: "query_result",
-        rows,
-      };
-
-      const existingRaw = sessionStorage.getItem("sheets");
-      const existing = existingRaw ? JSON.parse(existingRaw) : [];
-
-      const filtered = existing.filter(
-        (t: any) => t.name !== "query_result"
-      );
-
-      const updated = [...filtered, queryTab];
-
-      sessionStorage.setItem("sheets", JSON.stringify(updated));
-      router.push("/tables");
+      setPreviewRows(rows);
 
     } catch (err: any) {
       setError(err?.message || "Query failed");
       showToast("Query execution failed", "error");
     }
   };
+
+  function handleOpenQueryResult(range: string | null) {
+    if (!previewRows) return;
+    setIsOpening(true);
+
+    let finalRows = previewRows;
+    if (range) {
+      const p = parseRange(range);
+      if (p) {
+        finalRows = previewRows
+          .slice(p.r1, p.r2 + 1)
+          .map(row => row.slice(p.c1, p.c2 + 1));
+      }
+    }
+
+    const queryTab = { name: "query_result", rows: finalRows };
+    sessionStorage.setItem("sheets", JSON.stringify([queryTab]));
+    sessionStorage.removeItem("sheetSource");
+
+    router.push("/tables");
+    setIsOpening(false);
+  }
 
   function renderDDL(ddl: string) {
     const SQL_KW = [
@@ -316,6 +338,29 @@ export default function QueryPage() {
             </p>
           )}
         </div>
+
+        {previewRows && (
+          <div className="mt-6">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium text-slate-700">
+                Query Result — {previewRows.length - 1} rows
+              </p>
+              <button
+                onClick={() => setPreviewRows(null)}
+                className="text-xs text-slate-400 hover:text-red-500 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+            <SheetPreview
+              rawValues={previewRows}
+              onOpen={handleOpenQueryResult}
+              sheetName="query_result"
+              isOpening={isOpening}
+            />
+          </div>
+        )}
+
       </div>
 
       <div className="flex-1 mt-12">
