@@ -3,48 +3,20 @@
 import { useState } from "react";
 import { Cloud, Link2, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import * as XLSX from "xlsx";
 import { useToast } from "../components/ToastProvider";
 import { removeEmptyTopRows } from "../lib/removeEmptyRows";
 import SheetPreview from "../components/SheetPreview";
 
 interface PreviewState {
-  rawValues: string[][];
+  sheets: { name: string; rows: string[][] }[];
   fileId: string;
-  gid: number;
+  activeSheet: number;
 }
 
-function extractSheetIdAndGid(input: string): { fileId: string; gid: number } | null {
-  const fileIdMatch = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  if (!fileIdMatch) return null;
-  const fileId = fileIdMatch[1];
-  const gidMatch = input.match(/[?&#]gid=(\d+)/);
-  const gid = gidMatch ? Number(gidMatch[1]) : 0;
-  return { fileId, gid };
-}
-
-function parseCSV(text: string): string[][] {
-  let rows: string[][] = [];
-  for (const line of text.split("\n")) {
-    if (line.trim() === "") continue;
-    const row: string[] = [];
-    let inQuotes = false;
-    let cell = "";
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQuotes && line[i + 1] === '"') { cell += '"'; i++; }
-        else inQuotes = !inQuotes;
-      } else if (ch === "," && !inQuotes) {
-        row.push(cell); cell = "";
-      } else {
-        cell += ch;
-      }
-    }
-    row.push(cell);
-    rows.push(row);
-  }
-  rows = removeEmptyTopRows(rows);
-  return rows;
+function extractFileId(input: string): string | null {
+  const m = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : null;
 }
 
 function parseRange(range: string): { r1: number; c1: number; r2: number; c2: number } | null {
@@ -76,14 +48,14 @@ export default function ConnectPage() {
   const { showToast } = useToast();
   const router = useRouter();
 
-  async function loadPreview(fileId: string, gid: number) {
+  async function loadPreview(fileId: string) {
     try {
       setFetchingPreview(true);
       setLinkError("");
       setPreview(null);
 
       const res = await fetch(
-        `https://docs.google.com/spreadsheets/d/${fileId}/export?format=csv&gid=${gid}`,
+        `https://docs.google.com/spreadsheets/d/${fileId}/export?format=xlsx`,
         { redirect: "follow" }
       );
 
@@ -92,10 +64,18 @@ export default function ConnectPage() {
         return;
       }
 
-      const rawValues = parseCSV(await res.text());
-      setPreview({ rawValues, fileId, gid });
+      const buffer = await res.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+
+      const sheets = workbook.SheetNames.map((name) => {
+        const ws = workbook.Sheets[name];
+        const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "" });
+        return { name, rows: removeEmptyTopRows(rows as string[][]) };
+      });
+
+      setPreview({ sheets, fileId, activeSheet: 0 });
     } catch {
-      showToast("Error loading sheet preview", "error");
+      showToast("Sheet is not public", "error");
     } finally {
       setFetchingPreview(false);
     }
@@ -103,15 +83,16 @@ export default function ConnectPage() {
 
   async function openSheet(range: string | null) {
     if (!preview) return;
-    const { fileId, gid, rawValues } = preview;
+    const { fileId, sheets, activeSheet } = preview;
     try {
       setLoadingFinal(true);
 
-      const rows = removeEmptyTopRows(sliceRows(rawValues, range));
-      const name = range ? `Sheet (gid=${gid}) — ${range}` : `Sheet (gid=${gid})`;
+      const current = sheets[activeSheet];
+      const rows = sliceRows(removeEmptyTopRows(current.rows), range);
+      const name = range ? `${current.name} — ${range}` : current.name;
 
       sessionStorage.setItem("sheets", JSON.stringify([{ name, rows }]));
-      sessionStorage.setItem("sheetSource", JSON.stringify({ fileId, gid , range: range ?? null}));
+      sessionStorage.setItem("sheetSource", JSON.stringify({ fileId, sheetName: current.name, range: range ?? null}));
       router.push("/tables");
     } catch {
       showToast("Error opening sheet", "error");
@@ -122,12 +103,12 @@ export default function ConnectPage() {
 
   async function handleSubmit() {
     setLinkError("");
-    const parsed = extractSheetIdAndGid(sheetLink);
-    if (!parsed) {
+    const fileId = extractFileId(sheetLink);
+    if (!fileId) {
       setLinkError("Please enter a valid Google Sheets URL.");
       return;
     }
-    await loadPreview(parsed.fileId, parsed.gid);
+    await loadPreview(fileId);
   }
 
   return (
@@ -175,11 +156,29 @@ export default function ConnectPage() {
         </p>
       </div>
 
+      {preview && preview.sheets.length > 1 && (
+        <div className="flex gap-2 flex-wrap max-w-xl">
+          {preview.sheets.map((sheet, i) => (
+            <button
+              key={sheet.name}
+              onClick={() => setPreview({ ...preview, activeSheet: i })}
+              className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                preview.activeSheet === i
+                  ? "bg-blue-600 text-white"
+                  : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {sheet.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {preview && (
         <SheetPreview
-          rawValues={preview.rawValues}
+          rawValues={preview.sheets[preview.activeSheet].rows}
           onOpen={openSheet}
-          sheetName={`gid=${preview.gid}`}
+          sheetName={preview.sheets[preview.activeSheet].name}
           loading={fetchingPreview}
           isOpening={loadingFinal}
         />

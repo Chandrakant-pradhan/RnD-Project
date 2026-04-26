@@ -34,7 +34,7 @@ export default function ToastProvider({
 
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3000);
+    }, 5000);
   }
 
   function removeToast(id: number) {

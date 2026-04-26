@@ -9,36 +9,13 @@ import { getDB } from "../lib/pglite";
 import { removeEmptyTopRows } from "../lib/removeEmptyRows";
 import { setTableSchema } from "../lib/schema";
 import { useDB } from "../context/db-context";
+import * as XLSX from "xlsx";
 
 interface Tab {
   name: string;
   rows: string[][];
 }
 
-function parseCSV(text: string): string[][] {
-  let rows: string[][] = [];
-  for (const line of text.split("\n")) {
-    if (line.trim() === "") continue;
-    const row: string[] = [];
-    let inQuotes = false;
-    let cell = "";
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQuotes && line[i + 1] === '"') { cell += '"'; i++; }
-        else inQuotes = !inQuotes;
-      } else if (ch === "," && !inQuotes) {
-        row.push(cell); cell = "";
-      } else {
-        cell += ch;
-      }
-    }
-    row.push(cell);
-    rows.push(row);
-  }
-  rows = removeEmptyTopRows(rows);
-  return rows;
-}
 
 function parseRange(range: string): { r1: number; c1: number; r2: number; c2: number } | null {
   const m = range.trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
@@ -147,24 +124,31 @@ export default function TablesPage() {
       showToast("No sheet source found", "error");
       return;
     }
-
+  
     setSyncing(true);
-    const { fileId, gid, range } = JSON.parse(source);
-
+    const { fileId, sheetName, range } = JSON.parse(source);
+  
     try {
       const res = await fetch(
-        `https://docs.google.com/spreadsheets/d/${fileId}/export?format=csv&gid=${gid}`,
+        `https://docs.google.com/spreadsheets/d/${fileId}/export?format=xlsx`,
         { redirect: "follow" }
       );
-
+  
       if (!res.ok || res.url.includes("accounts.google.com") || (res.headers.get("content-type") ?? "").includes("text/html")) {
         showToast("Sheet is no longer accessible", "error");
         return;
       }
-
-      const allRows = parseCSV(await res.text());
-      const rows = removeEmptyTopRows(sliceRows(allRows, range));
-      const name = range ? `Sheet (gid=${gid}) — ${range}` : `Sheet (gid=${gid})`;
+  
+      const buffer = await res.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const ws = workbook.Sheets[sheetName];
+      if (!ws) {
+        showToast(`Sheet "${sheetName}" not found`, "error");
+        return;
+      }
+      const allRows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "" });
+      const rows = sliceRows(removeEmptyTopRows(allRows as string[][]), range);
+      const name = range ? `${sheetName} — ${range}` : sheetName;
       const results: Tab[] = [{ name, rows }];
 
       sessionStorage.setItem("sheets", JSON.stringify(results));
