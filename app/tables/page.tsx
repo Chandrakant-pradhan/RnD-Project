@@ -241,6 +241,7 @@ export default function TablesPage() {
                         e.stopPropagation();
                         openSchema(tab);
                       }}
+                      title="Infer Sheet Schema"
                       className="flex items-center justify-center w-7 h-7 rounded-md
                                 bg-white/30 hover:bg-green-600 text-white
                                 transition cursor-pointer"
@@ -253,6 +254,7 @@ export default function TablesPage() {
                         e.stopPropagation();
                         setOpenMenu(openMenu === i ? null : i);
                       }}
+                      title="Save as CSV"
                       className="flex items-center justify-center w-7 h-7 rounded-md
                                 bg-white/30 hover:bg-yellow-500 text-white
                                 transition cursor-pointer"
@@ -280,6 +282,7 @@ export default function TablesPage() {
         <button
           onClick={syncSheets}
           disabled={syncing}
+          title="Sync with Google Sheets"
           className="flex items-center gap-2 px-4 py-2 rounded-lg
                      bg-blue-600 text-white hover:bg-blue-700
                      disabled:opacity-50 transition"
