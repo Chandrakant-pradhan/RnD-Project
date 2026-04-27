@@ -2,7 +2,7 @@ const SCHEMA_KEY = "pglite_table_schemas";
 
 type SchemaStore = Record<string, Record<string, string>>;
 
-function readStore(): SchemaStore {
+export function readStore(): SchemaStore {
   try {
     const raw = localStorage.getItem(SCHEMA_KEY);
     return raw ? JSON.parse(raw) : {};
@@ -11,7 +11,7 @@ function readStore(): SchemaStore {
   }
 }
 
-function writeStore(store: SchemaStore): void {
+export function writeStore(store: SchemaStore): void {
   try {
     localStorage.setItem(SCHEMA_KEY, JSON.stringify(store));
   } catch {

@@ -1,19 +1,32 @@
 "use client";
 
 import { useState } from "react";
-import { getDB, createDB } from "../lib/pglite";
+import { getDB, createDB, getDBByName , saveSchemasToDB , getActiveDB  , restoreSchemasFromDB} from "../lib/pglite";
 import { useToast } from "../components/ToastProvider";
+import * as XLSX from "xlsx";
+import { removeEmptyTopRows } from "../lib/removeEmptyRows";
+import { sliceRows } from "../lib/tableProcessing";
+
+type MetaRow = {
+  table_name: string;
+  file_id: string;
+  sheet_name: string;
+  range: string | null;
+};
 
 export default function BackupAndRestore() {
   const [loading, setLoading] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const { showToast } = useToast();
+  const { showToast , showToastAfterReload} = useToast();
 
   async function handleExport() {
     try {
       setLoading("export");
 
       const db = await getDB();
+      //save the schema
+      await saveSchemasToDB(db, getActiveDB()!);
+
       const blob = await db.dumpDataDir("gzip");
 
       const url = URL.createObjectURL(blob);
@@ -38,14 +51,78 @@ export default function BackupAndRestore() {
       setSuccessMsg(null);
 
       const name = await createDB(file);
+      const db = await getDBByName(name);
+      await restoreSchemasFromDB(db, name);
 
-      setSuccessMsg(`File loaded in new database "${name}" successfully`);
+      await syncAllTables(name);
+
+      await new Promise((r) => setTimeout(r, 60));
+      window.location.reload();
+
+      showToastAfterReload(`File loaded and synced in database "${name}"` , "success");
     } catch {
       showToast("Restore failed", "error");
     } finally {
       setLoading(null);
     }
   }
+
+  async function syncAllTables(dbName: string) {
+
+    const db = await getDBByName(dbName);
+  
+    const meta = await db.query(`
+      SELECT table_name, file_id, sheet_name, range
+      FROM table_metadata
+    `);
+  
+    for (const row of meta.rows as MetaRow[]) {
+      const { table_name, file_id, sheet_name, range } = row;
+  
+      try {
+        const res = await fetch(
+          `https://docs.google.com/spreadsheets/d/${file_id}/export?format=xlsx`
+        );
+  
+        if (!res.ok) continue;
+  
+        const buffer = await res.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+  
+        const ws = workbook.Sheets[sheet_name];
+        if (!ws) continue;
+  
+        const allRows = XLSX.utils.sheet_to_json<string[]>(ws, {
+          header: 1,
+          defval: "",
+        });
+  
+        const rows = sliceRows(removeEmptyTopRows(allRows), range);
+  
+        await db.exec(`DELETE FROM "${table_name}"`);
+  
+        for (const r of rows.slice(1)) {
+          const values = r
+            .map(v =>
+              v === "" || v == null
+                ? "NULL"
+                : `'${String(v).replace(/'/g, "''")}'`
+            )
+            .join(",");
+  
+          await db.exec(`INSERT INTO "${table_name}" VALUES (${values})`);
+        }
+  
+      } catch (err) {
+        console.warn("Sync failed for table:", table_name);
+      }
+    }
+  
+    await db.close();
+  }
+
+
+  
 
   return (
     <div className="p-6">

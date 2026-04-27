@@ -10,32 +10,13 @@ import { removeEmptyTopRows } from "../lib/removeEmptyRows";
 import { setTableSchema } from "../lib/schema";
 import { useDB } from "../context/db-context";
 import * as XLSX from "xlsx";
+import { sliceRows } from "../lib/tableProcessing";
 
 interface Tab {
   name: string;
   rows: string[][];
 }
 
-
-function parseRange(range: string): { r1: number; c1: number; r2: number; c2: number } | null {
-  const m = range.trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
-  if (!m) return null;
-  const colIdx = (s: string) => {
-    let n = 0;
-    for (let i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
-    return n - 1;
-  };
-  return { c1: colIdx(m[1]), r1: +m[2] - 1, c2: colIdx(m[3]), r2: +m[4] - 1 };
-}
-
-function sliceRows(rawValues: string[][], range: string | null): string[][] {
-  if (!range) return rawValues;
-  const p = parseRange(range);
-  if (!p) return rawValues;
-  return rawValues
-    .slice(p.r1, p.r2 + 1)
-    .map(row => row.slice(p.c1, p.c2 + 1));
-}
 
 export default function TablesPage() {
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -104,6 +85,27 @@ export default function TablesPage() {
           .join(",");
         await db.exec(`INSERT INTO "${tableName}" VALUES (${values})`);
       }
+
+      const source = sessionStorage.getItem("sheetSource");
+
+      if (source) {
+        const { fileId, sheetName, range } = JSON.parse(source);
+        await db.exec(`
+          INSERT INTO table_metadata (table_name, file_id, sheet_name, range)
+          VALUES (
+            '${tableName}',
+            '${fileId}',
+            '${sheetName}',
+            ${range ? `'${range}'` : "NULL"}
+          )
+          ON CONFLICT (table_name)
+          DO UPDATE SET
+            file_id = EXCLUDED.file_id,
+            sheet_name = EXCLUDED.sheet_name,
+            range = EXCLUDED.range
+        `);
+      }
+
       setShowSchema(false);
 
       setTableSchema(activeDB , tableName, schema); //save the schema in local storage

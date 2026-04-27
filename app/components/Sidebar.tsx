@@ -12,7 +12,7 @@ export default function Sidebar() {
     { name: "Query", icon: FileText, path: "/query" },
     { name: "File Upload", icon: Upload, path: "/upload" },
     { name: "View Tables", icon: Database, path: "/tables" },
-    { name: "Google Sheets", icon: FileSpreadsheet, path: "/connect" },
+    { name: "Connect Sheets", icon: FileSpreadsheet, path: "/connect" },
     { name: "Backup & Restore", icon: HardDriveDownload, path: "/backup-restore"},
   ]
 

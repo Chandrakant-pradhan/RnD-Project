@@ -27,7 +27,7 @@ export default function Homepage() {
       path: "/upload",
     },
     {
-      title: "Google Sheets",
+      title: "Connect Sheets",
       description: "Connect to Google Drive",
       icon: FileSpreadsheet,
       path: "/connect",

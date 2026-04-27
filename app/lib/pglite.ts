@@ -1,6 +1,7 @@
 "use client";
 
 import { PGlite } from "@electric-sql/pglite";
+import { deleteDBSchemas , readStore , setTableSchema } from "./schema";
 
 const IDB_PREFIX = "/pglite/";
 const DEFAULT_DB = "Default DB";
@@ -47,13 +48,39 @@ export async function getDB(): Promise<PGlite> {
 
   if (!instanceMap.has(activeDB)) {
     const instance = await PGlite.create({ dataDir: `idb://${activeDB}` });
+    //add the metadata table
+    await instance.exec(`
+      CREATE TABLE IF NOT EXISTS table_metadata (
+        table_name TEXT PRIMARY KEY,
+        file_id TEXT,
+        sheet_name TEXT,
+        range TEXT
+      )
+    `);
     instanceMap.set(activeDB, instance);
   }
 
   return instanceMap.get(activeDB)!;
 }
 
+export async function getDBByName(name: string): Promise<PGlite> {
+  if (!instanceMap.has(name)) {
+    const instance = await PGlite.create({
+      dataDir: `idb://${name}`,
+    });
+    await instance.exec(`
+      CREATE TABLE IF NOT EXISTS table_metadata (
+        table_name TEXT PRIMARY KEY,
+        file_id TEXT,
+        sheet_name TEXT,
+        range TEXT
+      )
+    `);
+    instanceMap.set(name, instance);
+  }
 
+  return instanceMap.get(name)!;
+}
 
 export async function createDB(file?: File): Promise<string> {
   const name = `db${dbCounter++}`;
@@ -119,6 +146,7 @@ export async function deleteDB(): Promise<void> {
 
   indexedDB.deleteDatabase(`${IDB_PREFIX}${name}`);
   activeDB = DEFAULT_DB;
+  deleteDBSchemas(name);//remove the schema
 
   await new Promise((r) => setTimeout(r, 60));
 
@@ -126,4 +154,40 @@ export async function deleteDB(): Promise<void> {
   
   activeDB = DEFAULT_DB;
   fetchDBs();
+}
+
+export async function saveSchemasToDB(db: PGlite, dbName: string) {
+  const store = readStore();
+  const schemas = store[dbName];
+  console.log(schemas);
+  if (!schemas) return;
+
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_metadata (
+      table_name TEXT PRIMARY KEY,
+      ddl TEXT
+    )
+  `);
+  await db.exec(`DELETE FROM schema_metadata`);
+
+  for (const table in schemas) {
+    const ddl = schemas[table].replace(/'/g, "''");
+   
+    await db.exec(`
+      INSERT INTO schema_metadata (table_name, ddl)
+      VALUES ('${table}', '${ddl}')
+      ON CONFLICT (table_name)
+      DO UPDATE SET ddl = EXCLUDED.ddl
+    `);
+  }
+}
+
+export async function restoreSchemasFromDB(db: PGlite, dbName: string) {
+  const res = await db.query(`
+    SELECT table_name, ddl FROM schema_metadata
+  `);
+
+  for (const row of res.rows as { table_name: string; ddl: string }[]) {
+    setTableSchema(dbName, row.table_name, row.ddl);
+  }
 }

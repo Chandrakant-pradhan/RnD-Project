@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useState, useEffect } from "react";
 
 type ToastType = "error" | "success" | "info";
 
@@ -10,10 +10,14 @@ interface Toast {
   type: ToastType;
 }
 
+const STORAGE_KEY = "post_reload_toast";
+
 const ToastContext = createContext<{
   showToast: (message: string, type?: ToastType) => void;
+  showToastAfterReload: (message: string, type?: ToastType) => void;
 }>({
   showToast: () => {},
+  showToastAfterReload: () => {},
 });
 
 export function useToast() {
@@ -37,18 +41,34 @@ export default function ToastProvider({
     }, 5000);
   }
 
+  function showToastAfterReload(message: string, type: ToastType = "info") {
+    sessionStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ message, type })
+    );
+  }
+
   function removeToast(id: number) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }
 
+  useEffect(() => {
+    const stored = sessionStorage.getItem(STORAGE_KEY);
+    if (!stored) return;
+
+    try {
+      const { message, type } = JSON.parse(stored);
+      showToast(message, type);
+    } catch {}
+
+    sessionStorage.removeItem(STORAGE_KEY);
+  }, []);
+
   return (
-    <ToastContext.Provider value={{ showToast }}>
+    <ToastContext.Provider value={{ showToast, showToastAfterReload }}>
       {children}
 
-      {/* Toast container */}
-
       <div className="fixed top-6 left-1/2 -translate-x-1/2 flex flex-col gap-3 z-50">
-
         {toasts.map((toast) => {
           const color =
             toast.type === "error"

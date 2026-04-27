@@ -7,6 +7,7 @@ import * as XLSX from "xlsx";
 import { useToast } from "../components/ToastProvider";
 import { removeEmptyTopRows } from "../lib/removeEmptyRows";
 import SheetPreview from "../components/SheetPreview";
+import {sliceRows} from "../lib/tableProcessing";
 
 interface PreviewState {
   sheets: { name: string; rows: string[][] }[];
@@ -17,26 +18,6 @@ interface PreviewState {
 function extractFileId(input: string): string | null {
   const m = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   return m ? m[1] : null;
-}
-
-function parseRange(range: string): { r1: number; c1: number; r2: number; c2: number } | null {
-  const m = range.trim().toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
-  if (!m) return null;
-  const colIdx = (s: string) => {
-    let n = 0;
-    for (let i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
-    return n - 1;
-  };
-  return { c1: colIdx(m[1]), r1: +m[2] - 1, c2: colIdx(m[3]), r2: +m[4] - 1 };
-}
-
-function sliceRows(rawValues: string[][], range: string | null): string[][] {
-  if (!range) return rawValues;
-  const p = parseRange(range);
-  if (!p) return rawValues;
-  return rawValues
-    .slice(p.r1, p.r2 + 1)
-    .map(row => row.slice(p.c1, p.c2 + 1));
 }
 
 export default function ConnectPage() {
@@ -89,7 +70,7 @@ export default function ConnectPage() {
       const sheets = workbook.SheetNames.map((name) => {
         const ws = workbook.Sheets[name];
         const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "" });
-        return { name, rows: removeEmptyTopRows(rows as string[][]) };
+        return { name, rows: rows as string[][] };
       });
       setPreview({ sheets, fileId: "", activeSheet: 0 });
     } catch {

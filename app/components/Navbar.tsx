@@ -15,7 +15,7 @@ export default function Navbar() {
   const [renameValue, setRenameValue] = useState("")
   const dropdownRef = useRef<HTMLDivElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
-  const { showToast } = useToast();
+  const { showToastAfterReload } = useToast();
   const router = useRouter();
 
   useEffect(() => {
@@ -58,6 +58,7 @@ export default function Navbar() {
     await renameDB(trimmed)
     setRenamingDB(null)
     await refresh()
+    showToastAfterReload("DB renamed successfully" , "success");
   }
 
   const handleDelete = async (name: string, e: React.MouseEvent) => {
@@ -65,6 +66,7 @@ export default function Navbar() {
     setActive(name)
     await deleteDB()
     await refresh()
+    showToastAfterReload("DB removed successfully" , "success");
   }
 
   return (
